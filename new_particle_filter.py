@@ -17,6 +17,12 @@ from filterpy.monte_carlo import multinomial_resample
 from numba import jit
 import time
 
+import torch
+import torch.nn as nn
+import torchvision.models as models
+import torchvision.transforms as transforms
+from torch.autograd import Variable
+
 
 #cv bridge to convert ros img to opencv img
 # bridge = CvBridge()
@@ -38,12 +44,49 @@ plt.xlim(-150,150)
 plt.ylim(-150,150)
 plt.draw()
 
+class ImageEncoder():
+
+    def __init__(self,image_path,siftD=128,num_clusters=64):
+        self.siftD = siftD
+        self.num_clusters = num_clusters
+        self.clustering_model = self.create_hist_model(image_path)
+
+    def detect_sift_features(self,rgb_img):
+        gray_img = cv2.cvtColor(rgb_img,cv2.COLOR_BGR2GRAY)
+        sift_function = cv2.SIFT_create(nfeatures=128)
+        keypoints, features = sift_function.detectAndCompute(gray_img,None)
+        return keypoints, features
+
+    def create_hist_model(self,image_path):
+        all_features = []
+        img = cv2.imread(image_path)
+        keypoints, features = self.detect_sift_features(img)
+        all_features.append(features)
+        features_array = np.concatenate(all_features,axis=0).reshape((-1,self.siftD))
+        clustering_model = KMeans(n_clusters=64,n_init="auto")
+        clustering_model.fit(features_array)
+        return clustering_model
+
+    def hist_encode(self,rgb_img):
+        keypoints, features = self.detect_sift_features(rgb_img)
+        features = np.array(features).reshape((-1,self.siftD))
+        feature_labels = self.clustering_model.predict(features).reshape((-1))
+        hist, bin_edges = np.histogram(feature_labels,bins=[i for i in range(self.num_clusters)])
+        return np.array(hist).astype(np.float32)
+
+    def hist_similarity_correlation(self,hist1,hist2):
+        sim = cv2.compareHist(hist1,hist2,0)
+        return sim
+
+    def hist_similarity_intersection(self,hist1,hist2):
+        sim = cv2.compareHist(hist1,hist2,2)
+        return sim
+
 @jit(nopython=True)
 def get_encode(pts, W):
     Z = np.exp(1j * pts @ W).sum(axis=0)
     Z = Z / np.linalg.norm(Z)
     return Z
-
 
 class Encoder:
     def __init__(self):
@@ -67,12 +110,62 @@ class Encoder:
     def similarity(self, x, y):
         return np.absolute(np.sum(x * y.conj()))
 
+class DLCosineEncoder:
+    def __init__(self):
+        # Load the pretrained model
+        self.model = models.resnet18(pretrained=True)
+        # Use the model object to select the desired layer
+        self.layer = self.model._modules.get('avgpool')
+
+        # Set model to evaluation mode
+        self.model.eval()
+        self.scaler = transforms.Resize((224, 224))
+        self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                        std=[0.229, 0.224, 0.225])
+        self.to_tensor = transforms.ToTensor()
+        self.sift_function = cv2.SIFT_create(nfeatures=500)
+        self.cos = nn.CosineSimilarity(dim=1, eps=1e-6)
+    def get_kpt_img(self, rgb_img):
+        gray_img = cv2.cvtColor(rgb_img,cv2.COLOR_BGR2GRAY) # Converting the RGB image to grayscale
+         # Creating an instance of the SIFT Function
+        keypoints, features = self.sift_function.detectAndCompute(gray_img,None) # Computing the set of keypoints and features for the image
+        blank = np.zeros(rgb_img.shape).astype(np.uint8)
+        for i in range(len(keypoints)):
+    #         print(int(keypoints[i].pt[1]),int(keypoints[i].pt[0]))
+            cv2.circle(blank, (int(keypoints[i].pt[0]),int(keypoints[i].pt[1])), 3, (255,255,255), -1)
+    #         blank[int(keypoints[i].pt[1]),int(keypoints[i].pt[0])] = [255,255,255]
+        return blank
+    
+    def encode(self, img):
+        # 2. Create a PyTorch Variable with the transformed image
+        t_img = Variable(self.normalize(self.scaler(self.to_tensor(img))).unsqueeze(0))
+        # 3. Create a vector of zeros that will hold our feature vector
+        #    The 'avgpool' layer has an output size of 512
+        my_embedding = torch.zeros(1,512,1,1)
+        # 4. Define a function that will copy the output of a layer
+
+        def copy_data(m, i, o):
+            my_embedding.copy_(o.data)
+        # 5. Attach that function to our selected layer
+        h = self.layer.register_forward_hook(copy_data)
+        # 6. Run the model on our transformed image
+        self.model(t_img)
+        # 7. Detach our copy function from the layer
+        h.remove()
+        # 8. Return the feature vector
+
+        return my_embedding.view(512)
+    
+    def similarity(self, x, y):
+        return self.cos(x.unsqueeze(0),y.unsqueeze(0))
+
+
 class ParticleFilter:
     def __init__(self, image_path, num_particles, initial_state, process_noise_std):
         self.num_particles = num_particles
         #known init position
-        # self.particles = self.create_gaussian_particles(initial_state, process_noise_std, self.num_particles)
-        self.particles = self.create_uniform_particles((-100,100), (-100,100), self.num_particles)
+        self.particles = self.create_gaussian_particles(initial_state, process_noise_std, self.num_particles)
+        # self.particles = self.create_uniform_particles((-100,100), (-100,100), self.num_particles)
         #plot
         x = self.particles[:, 0]
         y = self.particles[:, 1]
@@ -81,8 +174,10 @@ class ParticleFilter:
         plt.pause(0.01)
 
         self.weights = np.ones(num_particles) / num_particles
-        self.encoder = Encoder()
-        self.map_img = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2GRAY)
+        # self.encoder = Encoder()
+        self.encoder = DLCosineEncoder()
+        # self.map_img = cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2GRAY)
+        self.map_img = cv2.imread(image_path)
         self.img_sz = self.map_img.shape[0]
         self.map_sz = 1200
         self.resolution = self.img_sz/self.map_sz

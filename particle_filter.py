@@ -12,8 +12,9 @@ from numpy.random import uniform, randn
 import matplotlib.pyplot as plt
 import cv2
 from scipy.stats import norm
-from filterpy.monte_carlo import systematic_resample
-import numexpr as ne
+from filterpy.monte_carlo import multinomial_resample
+# import numexpr as ne
+from numba import jit
 import time
 
 
@@ -74,12 +75,19 @@ class ImageEncoder():
     def hist_similarity_intersection(self,hist1,hist2):
         sim = cv2.compareHist(hist1,hist2,2)
         return sim
+    
+@jit(nopython=True)
+def get_encode(pts, W):
+    Z = np.exp(1j * pts @ W).sum(axis=0)
+    Z = Z / np.linalg.norm(Z)
+    return Z
 
 class Encoder:
     def __init__(self):
         self.d = 128
         self.alpha = 0.1
         self.W = np.stack([self.strict_standard_normal(self.d) for _ in range(2)], axis=0) * self.alpha
+        self.W = self.W.astype(np.complex128)
         self.detector = cv2.SIFT_create(20)
         
     def strict_standard_normal(self, d):
@@ -90,13 +98,8 @@ class Encoder:
     
     def encode(self, img):
         kp = self.detector.detect(img, None)
-        pts = cv2.KeyPoint_convert(kp)
-        # test = 1j * pts @ self.W
-        # Z = ne.evaluate('exp(test)')
-        # Z = [np.e**n for n in test]
-        Z = np.exp(1j * pts @ self.W).sum(axis=0)
-        Z = Z / np.linalg.norm(Z)
-        return Z
+        pts = cv2.KeyPoint_convert(kp).astype(np.complex128)
+        return get_encode(pts,self.W)
 
     def similarity(self, x, y):
         return np.absolute(np.sum(x * y.conj()))
@@ -105,8 +108,8 @@ class ParticleFilter:
     def __init__(self, image_path, num_particles, initial_state, process_noise_std):
         self.num_particles = num_particles
         #known init position
-        self.particles = self.create_gaussian_particles(initial_state, process_noise_std, self.num_particles)
-        # self.particles = self.create_uniform_particles((-100,100), (-100,100), self.num_particles)
+        # self.particles = self.create_gaussian_particles(initial_state, process_noise_std, self.num_particles)
+        self.particles = self.create_uniform_particles((-100,100), (-100,100), self.num_particles)
         #plot
         x = self.particles[:, 0]
         y = self.particles[:, 1]
@@ -158,15 +161,15 @@ class ParticleFilter:
             if predicted_img is not None:
                 #similarity score is the difference in measurement (measurement - predicted measurement)
                 diff_measurement = self.measurement_model(encoding1, predicted_img)
-                self.weights[i] *= np.exp(-0.5 * (diff_measurement)**2) # Update the particle's weight based on the difference between predicted and actual measurements
-                # self.weights[i] = diff_measurement
+                # self.weights[i] *= np.exp(-0.5 * (diff_measurement)**2) # Update the particle's weight based on the difference between predicted and actual measurements
+                self.weights[i] = diff_measurement
             else:
                 return
         # self.weights += 1.e-300 
         # self.weights = (self.weights - min(self.weights))/ (max(self.weights)-min(self.weights))
-        # self.weights += 1.e-300 
+        self.weights += 1.e-300 
         self.weights /= np.sum(self.weights) # Normalize the weights
-        indexes = systematic_resample(self.weights)
+        indexes = multinomial_resample(self.weights)
         self.resample_from_index(self.particles, self.weights, indexes)
 
     def state_to_pixel(self, state):
@@ -226,9 +229,9 @@ def main():
     rospy.Subscriber("/mavros/global_position/rel_alt", Float64, altitude_callback)
 
     image_path = "map_sq.png"
-    num_particles = 200
-    initial_state = np.array([49, 17])  # Initial guess of drone position (pixel coordinates)
-    process_noise_std = np.array([10, 10]) 
+    num_particles = 400
+    initial_state = np.array([0, 0])  # Initial guess of drone position (pixel coordinates)
+    process_noise_std = np.array([20, 20]) 
     particle_filter = ParticleFilter(image_path, num_particles, initial_state, process_noise_std)
     time.sleep(0.2)
     # Main loop to update and predict
