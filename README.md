@@ -46,7 +46,7 @@ Systematic Resampling is used with a weighting method reflecting the Bayes Theor
 
 ### Results
 
-Fast convergence of particles to the ground-truth drone location is observed by visual results as well as obtained odomtery readings by the *average* particle in the Particle Filter. The depiction of the same by running the Particle Filter Model that uses VecKM-based Encodings in a realistic Gazebo PX4 SITL world is shown below.
+Fast convergence of particles to the ground-truth drone location is observed by visual results as well as obtained odomtery readings by the *average* particle in the Particle Filter. The depiction of the same by running the Particle Filter Model that uses VecKM-based Encodings in a realistic Gazebo PX4 SITL world is shown in the video embedded below.
 
 [![Video](images/DroneSetup.jpeg)](https://drive.google.com/file/d/1LihlSgeTUfliR2FKWrQg5qaWYqrT-apc/view?usp=sharing)
 
