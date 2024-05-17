@@ -12,11 +12,7 @@ Visual Odometry for Drones using a Particle Filter Approach with Image Encoding 
 
 ### Overview
 
-In this project, we present a vision-based method that uses camera image input for localization and visual odometry in a mapped environment by using an encoder to encode camera input which is then used as the measurement for a particle filter localization system. We assume a setup where a drone with constant zero pitch and roll is moving around in a mapped environment with a monocular camera facing down at all times (with a shutter speed high enough to prevent image imperfections while moving at high speeds). We also assume known control inputs (within the limits of reasonable error) to drive the drone in a particular desired motion, a property that becomes a basis for the drone's motion model used in the particle filter implementation, explained in further sections. A basic depiction of the drone's setup in a realistic Gazebo PX4 SITL world with the drone camera's view projected onto its image plane is shown below.
-
-<p align="center">
-  <img src="images/DroneSetup.jpeg"/>
-</p>
+In this project, we present a vision-based method that uses camera image input for localization and visual odometry in a mapped environment by using an encoder to encode camera input which is then used as the measurement for a particle filter localization system. We assume a setup where a drone with constant zero pitch and roll is moving around in a mapped environment with a monocular camera facing down at all times (with a shutter speed high enough to prevent image imperfections while moving at high speeds). We also assume known control inputs (within the limits of reasonable error) to drive the drone in a particular desired motion.
 
 ### Image Encoding
 
@@ -50,9 +46,10 @@ Systematic Resampling is used with a weighting method reflecting the Bayes Theor
 
 ### Results
 
-Fast convergence of particles to the ground-truth drone location is observed by visual results as well as obtained odomtery readings by the *average* particle in the Particle Filter. The sepiction of the same by running the Particle Filter Model that uses VecKM-based Encodings in a realistic Gazebo PX4 SITL world is shown below. 
+Fast convergence of particles to the ground-truth drone location is observed by visual results as well as obtained odomtery readings by the *average* particle in the Particle Filter. The depiction of the same by running the Particle Filter Model that uses VecKM-based Encodings in a realistic Gazebo PX4 SITL world is shown below.
 
-<iframe src="https://drive.google.com/file/d/1LihlSgeTUfliR2FKWrQg5qaWYqrT-apc/preview" width="640" height="480" allow="autoplay"></iframe>
+[![Video](images/DroneSetup.jpeg)](https://drive.google.com/file/d/1LihlSgeTUfliR2FKWrQg5qaWYqrT-apc/view?usp=sharing)
+
 
 ### Executing the Code
 
